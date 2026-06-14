@@ -12,6 +12,7 @@ categories = ["development-tools", "command-line-utilities"]
 
 [dependencies]
 archidoc-types = { version = "0.5.0", path = "../../core/archidoc-types" }
+serde_json = "1"
 quote = "1"
 syn = { version = "2", features = ["full", "parsing"] }
 ignore = "0.4"

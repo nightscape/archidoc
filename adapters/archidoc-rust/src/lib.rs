@@ -14,6 +14,7 @@
 //! | `promote.rs` | -- | Auto-promote planned to verified | planned |
 //! | `cargo_modules.rs` | -- | cargo-modules integration (optional) | planned |
 
+pub mod cargo_metadata;
 pub mod cargo_modules;
 pub mod fitness;
 pub mod parser;
