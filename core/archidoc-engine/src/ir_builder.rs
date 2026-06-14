@@ -176,6 +176,10 @@ fn overlay_module(tree: &mut DirNode, target_path: &str, module: &ModuleDoc, sca
         })
         .collect();
 
+    if module.layer.is_some() {
+        node.layer = module.layer.clone();
+    }
+
     // Overlay file table entries onto existing FileNodes
     for file_entry in &module.files {
         let file_node = node

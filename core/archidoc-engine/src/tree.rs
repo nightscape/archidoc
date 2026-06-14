@@ -282,6 +282,7 @@ pub fn build_dir_tree(
             content: None,
             source_file: None,
             parent: None,
+            layer: None,
             relationships: Vec::new(),
             code_elements: Vec::new(),
             dirs,

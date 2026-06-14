@@ -142,6 +142,7 @@ fn ir_to_module_docs(ir: &ArchitectureIR) -> Vec<ModuleDoc> {
                 pattern_status: node.pattern_status.unwrap_or_default(),
                 description: node.description.clone().unwrap_or_default(),
                 parent_container,
+                layer: None,
                 relationships,
                 files,
                 code_elements: Vec::new(),

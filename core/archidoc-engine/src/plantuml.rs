@@ -142,13 +142,15 @@ pub fn generate_component(output_dir: &Path, ir: &ArchitectureIR) {
         .filter(|d| d.c4_level == Some(C4Level::Component))
         .collect();
 
+    // Group by explicit `@c4 layer` when set, else by directory-derived parent.
     let mut grouped: BTreeMap<String, Vec<&DirNode>> = BTreeMap::new();
     for dir in &components {
-        let parent = dir
-            .parent
+        let group = dir
+            .layer
             .clone()
+            .or_else(|| dir.parent.clone())
             .unwrap_or_else(|| "other".to_string());
-        grouped.entry(parent).or_default().push(dir);
+        grouped.entry(group).or_default().push(dir);
     }
 
     let mut boundary_defs = String::new();

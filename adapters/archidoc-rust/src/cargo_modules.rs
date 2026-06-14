@@ -331,6 +331,7 @@ digraph {
                 protocol: "Rust".to_string(),
             }],
             files: vec![],
+            layer: None,
             code_elements: vec![],
         }];
 
@@ -358,6 +359,7 @@ digraph {
             parent_container: None,
             relationships: vec![],
             files: vec![],
+            layer: None,
             code_elements: vec![],
         }];
 

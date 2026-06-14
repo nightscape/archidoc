@@ -69,6 +69,7 @@ pub fn extract_all_docs(root: &Path) -> Vec<ModuleDoc> {
         let pattern_status = parser::extract_pattern_status(&content);
         let description = parser::extract_description(&content);
         let parent_container = parser::extract_parent_container(&module_path);
+        let layer = parser::extract_layer(&content);
         let relationships = parser::extract_relationships(&content);
         let files = parser::extract_file_table(&content);
 
@@ -94,6 +95,7 @@ pub fn extract_all_docs(root: &Path) -> Vec<ModuleDoc> {
             pattern_status,
             description,
             parent_container,
+            layer,
             relationships,
             files,
             code_elements,

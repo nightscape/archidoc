@@ -53,6 +53,23 @@ pub fn extract_c4_level(content: &str) -> C4Level {
     }
 }
 
+/// Extract the architecture layer from doc content.
+///
+/// Uses `@c4 layer <name>` syntax (e.g. `@c4 layer Adapters`). The layer groups
+/// components into a shared boundary in the component diagram, overriding the
+/// directory-derived parent grouping. Returns `None` when unset.
+pub fn extract_layer(content: &str) -> Option<String> {
+    for line in content.lines() {
+        if let Some(rest) = line.trim().strip_prefix("@c4 layer ") {
+            let name = rest.trim();
+            if !name.is_empty() {
+                return Some(name.to_string());
+            }
+        }
+    }
+    None
+}
+
 /// Extract the primary GoF pattern name from doc content.
 ///
 /// Priority order:
@@ -462,6 +479,16 @@ pub struct Helper {}
         assert_eq!(els[0].relationships.len(), 1);
         assert_eq!(els[0].relationships[0].target, "Row");
         assert_eq!(els[0].description, "The storage seam.");
+    }
+
+    #[test]
+    fn layer_is_extracted_when_present() {
+        // `content` reaches the parser already stripped of `//!` prefixes.
+        assert_eq!(
+            extract_layer("@c4 component\n@c4 layer Adapters"),
+            Some("Adapters".to_string())
+        );
+        assert_eq!(extract_layer("@c4 component"), None);
     }
 
     #[test]

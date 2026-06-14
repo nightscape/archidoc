@@ -60,6 +60,7 @@ fn merge_dir(base: DirNode, incoming: DirNode) -> Result<DirNode, MergeError> {
         content: incoming.content.or(base.content),
         source_file: incoming.source_file.or(base.source_file),
         parent: incoming.parent.or(base.parent),
+        layer: incoming.layer.or(base.layer),
         relationships: if incoming.relationships.is_empty() {
             base.relationships
         } else {
