@@ -99,6 +99,7 @@ dependencies = [
  "archidoc-types",
  "ignore",
  "quote",
+ "serde_json",
  "syn",
  "tempfile",
 ]

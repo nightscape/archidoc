@@ -260,6 +260,34 @@ enum IrCommand {
         log: bool,
     },
 
+    /// Check declared `@c4 uses` relationships against real crate dependencies
+    ///
+    /// Reads the actual crate→crate dependency graph from `cargo metadata`
+    /// (no extra tooling) and diffs it against the `@c4 uses` arrows declared
+    /// in a compiled IR. Reports two kinds of drift:
+    ///   missing  — a real dependency with no `@c4 uses` (add the arrow)
+    ///   stale    — an `@c4 uses` with no real dependency (remove the arrow)
+    ///
+    /// Examples:
+    ///   archidoc ir check-deps _context/current.json --manifest-dir crates
+    ///   archidoc ir check-deps _context/current.json --manifest-dir . --strict
+    CheckDeps {
+        /// Path to the compiled IR JSON (the declared `@c4 uses` source)
+        ir: PathBuf,
+
+        /// Directory containing the Cargo workspace/crate to read deps from
+        #[arg(long, default_value = ".")]
+        manifest_dir: PathBuf,
+
+        /// Dependency names to ignore (repeatable); `workspace-hack` is always ignored
+        #[arg(long)]
+        ignore: Vec<String>,
+
+        /// Exit 1 if any drift is found (CI gate)
+        #[arg(long)]
+        strict: bool,
+    },
+
     /// List directory children from compiled IR (no rescan)
     ///
     /// Reads from _context/current.json by default.
@@ -506,6 +534,9 @@ fn run_ir(args: IrArgs) {
         }
         IrCommand::Validate { architecture, current, strict, log } => {
             run_ir_validate(architecture, current, strict, log);
+        }
+        IrCommand::CheckDeps { ir, manifest_dir, ignore, strict } => {
+            run_ir_check_deps(ir, manifest_dir, ignore, strict);
         }
         IrCommand::Ls { path, depth, ir_path } => {
             let ir = load_ir_default(ir_path);
@@ -766,6 +797,75 @@ fn run_ir_validate(architecture: PathBuf, current: PathBuf, strict: bool, log: b
     }
 
     if report.should_fail(strict) {
+        std::process::exit(1);
+    }
+}
+
+fn run_ir_check_deps(ir: PathBuf, manifest_dir: PathBuf, ignore: Vec<String>, strict: bool) {
+    use archidoc_rust::cargo_metadata::{
+        validate_ir_relationships, workspace_import_graph, DEFAULT_IGNORE,
+    };
+    use archidoc_rust::cargo_modules::WarningKind;
+    use std::collections::HashSet;
+
+    let base = cwd();
+    let ir_path = resolve_path(&base, &ir);
+    let manifest_dir = resolve_path(&base, &manifest_dir);
+    let ir = load_ir(&ir_path);
+
+    let ignore: HashSet<String> = DEFAULT_IGNORE
+        .iter()
+        .map(|s| s.to_string())
+        .chain(ignore)
+        .collect();
+
+    let graph = match workspace_import_graph(&manifest_dir, &ignore) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(2);
+        }
+    };
+
+    let warnings = validate_ir_relationships(&ir, &graph, &ignore);
+
+    let missing: Vec<_> = warnings
+        .iter()
+        .filter(|w| matches!(w.kind, WarningKind::Undeclared))
+        .collect();
+    let stale: Vec<_> = warnings
+        .iter()
+        .filter(|w| matches!(w.kind, WarningKind::NoImport))
+        .collect();
+
+    if warnings.is_empty() {
+        println!("Relationship check passed — every `@c4 uses` matches a real crate dependency.");
+        return;
+    }
+
+    if !missing.is_empty() {
+        println!(
+            "Missing `@c4 uses` ({} — real dependency, no declared arrow):",
+            missing.len()
+        );
+        for w in &missing {
+            println!(
+                "  {} → {}\n      add to {}: //! @c4 uses {} \"<purpose>\" \"Rust\"",
+                w.module, w.target, w.module, w.target
+            );
+        }
+    }
+    if !stale.is_empty() {
+        println!(
+            "\nStale `@c4 uses` ({} — declared arrow, no real dependency):",
+            stale.len()
+        );
+        for w in &stale {
+            println!("  {} → {}  (remove or fix the `@c4 uses` line)", w.module, w.target);
+        }
+    }
+
+    if strict {
         std::process::exit(1);
     }
 }
