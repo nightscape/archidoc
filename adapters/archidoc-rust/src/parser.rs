@@ -40,9 +40,11 @@ pub fn archidoc_from_file(path: &Path) -> Option<String> {
 
 /// Extract the C4 level marker from doc content.
 ///
-/// Uses `@c4 container` / `@c4 component` syntax.
+/// Uses `@c4 system` / `@c4 container` / `@c4 component` syntax.
 pub fn extract_c4_level(content: &str) -> C4Level {
-    if content.contains("@c4 container") {
+    if content.contains("@c4 system") {
+        C4Level::System
+    } else if content.contains("@c4 container") {
         C4Level::Container
     } else if content.contains("@c4 component") {
         C4Level::Component
@@ -378,6 +380,14 @@ mod tests {
     fn explicit_pattern_single_word() {
         let content = "@c4 component\n\nSome description.\n\nPattern: Facade";
         assert_eq!(extract_pattern(content), "Facade");
+    }
+
+    #[test]
+    fn c4_level_recognizes_all_levels() {
+        assert_eq!(extract_c4_level("//! @c4 system"), C4Level::System);
+        assert_eq!(extract_c4_level("//! @c4 container"), C4Level::Container);
+        assert_eq!(extract_c4_level("//! @c4 component"), C4Level::Component);
+        assert_eq!(extract_c4_level("//! no annotation"), C4Level::Unknown);
     }
 
     #[test]

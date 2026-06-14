@@ -9,6 +9,7 @@ use crate::annotation::{HealthStatus, PatternStatus};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum C4Level {
+    System,
     Container,
     Component,
     Unknown,
@@ -17,6 +18,7 @@ pub enum C4Level {
 impl fmt::Display for C4Level {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::System => write!(f, "system"),
             Self::Container => write!(f, "container"),
             Self::Component => write!(f, "component"),
             Self::Unknown => write!(f, "unknown"),
