@@ -152,6 +152,30 @@ fn overlay_module(tree: &mut DirNode, target_path: &str, module: &ModuleDoc, sca
         })
         .collect();
 
+    // Code-level elements (@c4 code)
+    node.code_elements = module
+        .code_elements
+        .iter()
+        .map(|c| archidoc_types::ir::CodeElement {
+            name: c.name.clone(),
+            kind: c.kind.clone(),
+            description: if c.description.is_empty() || c.description == "*No description*" {
+                None
+            } else {
+                Some(c.description.clone())
+            },
+            relationships: c
+                .relationships
+                .iter()
+                .map(|r| Relationship {
+                    target: r.target.clone(),
+                    label: r.label.clone(),
+                    protocol: r.protocol.clone(),
+                })
+                .collect(),
+        })
+        .collect();
+
     // Overlay file table entries onto existing FileNodes
     for file_entry in &module.files {
         let file_node = node

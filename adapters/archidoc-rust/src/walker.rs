@@ -72,6 +72,19 @@ pub fn extract_all_docs(root: &Path) -> Vec<ModuleDoc> {
         let relationships = parser::extract_relationships(&content);
         let files = parser::extract_file_table(&content);
 
+        // `@c4 code` elements live on item docs across the module's source
+        // files. For an entry file, scan its directory's siblings so the
+        // crate/module component owns every code element it declares.
+        let code_elements = if is_standard_entry {
+            let dir = path.parent().unwrap_or(path);
+            read_rs_sources(dir)
+                .iter()
+                .flat_map(|(_, src)| parser::extract_code_elements(src))
+                .collect()
+        } else {
+            parser::extract_code_elements(&fs::read_to_string(path).unwrap_or_default())
+        };
+
         docs_map.insert(module_path.clone(), (ModuleDoc {
             module_path,
             content,
@@ -83,6 +96,7 @@ pub fn extract_all_docs(root: &Path) -> Vec<ModuleDoc> {
             parent_container,
             relationships,
             files,
+            code_elements,
         }, is_priority));
     }
 
