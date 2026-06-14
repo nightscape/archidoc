@@ -65,6 +65,11 @@ fn merge_dir(base: DirNode, incoming: DirNode) -> Result<DirNode, MergeError> {
         } else {
             incoming.relationships
         },
+        code_elements: if incoming.code_elements.is_empty() {
+            base.code_elements
+        } else {
+            incoming.code_elements
+        },
         dirs: Vec::new(), // filled below
         files: Vec::new(), // filled below
     };

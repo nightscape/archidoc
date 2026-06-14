@@ -24,6 +24,18 @@ pub struct FileEntry {
     pub extra: HashMap<String, String>,
 }
 
+/// A code-level element (`@c4 code`) — a curated struct/enum/trait/fn that is
+/// architecturally load-bearing enough to appear in a diagram.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodeElement {
+    pub name: String,
+    /// `struct` | `enum` | `trait` | `fn`
+    pub kind: String,
+    pub description: String,
+    #[serde(default)]
+    pub relationships: Vec<Relationship>,
+}
+
 /// A parsed module documentation unit.
 ///
 /// This is the core data structure — the JSON IR contract between
@@ -40,4 +52,6 @@ pub struct ModuleDoc {
     pub parent_container: Option<String>,
     pub relationships: Vec<Relationship>,
     pub files: Vec<FileEntry>,
+    #[serde(default)]
+    pub code_elements: Vec<CodeElement>,
 }

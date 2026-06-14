@@ -84,11 +84,27 @@ pub struct DirNode {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub relationships: Vec<Relationship>,
 
+    // -- Code-level elements (@c4 code) --
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub code_elements: Vec<CodeElement>,
+
     // -- Children --
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dirs: Vec<DirNode>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<FileNode>,
+}
+
+/// A code-level element (`@c4 code`) attached to its component.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeElement {
+    pub name: String,
+    /// `struct` | `enum` | `trait` | `fn`
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub relationships: Vec<Relationship>,
 }
 
 /// A file node in the architecture tree.
@@ -212,6 +228,7 @@ impl DirNode {
             source_file: None,
             parent: None,
             relationships: Vec::new(),
+            code_elements: Vec::new(),
             dirs: Vec::new(),
             files: Vec::new(),
         }

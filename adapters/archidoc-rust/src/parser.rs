@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 
 use archidoc_types::{
-    C4Level, FileEntry, HealthStatus, PatternStatus, Relationship,
+    C4Level, CodeElement, FileEntry, HealthStatus, PatternStatus, Relationship,
 };
 
 /// Extract `//!` doc comments from a Rust source file.
@@ -372,6 +372,58 @@ fn parse_pattern_field(field: &str) -> (String, PatternStatus) {
     }
 }
 
+/// Join the `#[doc = "..."]` attributes of an item into one string.
+fn doc_of(attrs: &[syn::Attribute]) -> String {
+    let mut out = String::new();
+    for attr in attrs {
+        if !attr.path().is_ident("doc") {
+            continue;
+        }
+        if let syn::Meta::NameValue(nv) = &attr.meta {
+            if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = &nv.value {
+                out.push_str(s.value().trim());
+                out.push('\n');
+            }
+        }
+    }
+    out
+}
+
+/// Extract `@c4 code` elements (struct/enum/trait/fn) from a Rust source file.
+///
+/// Only items whose doc comment contains a `@c4 code` marker are collected;
+/// everything else is ignored, keeping the code diagram a curated set of
+/// architecturally load-bearing types rather than a dump of every symbol.
+/// `@c4 uses` lines in the item doc become the element's relationships.
+pub fn extract_code_elements(source: &str) -> Vec<CodeElement> {
+    let file = match syn::parse_file(source) {
+        Ok(f) => f,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut elements = Vec::new();
+    for item in &file.items {
+        let (name, kind, attrs): (String, &str, &[syn::Attribute]) = match item {
+            syn::Item::Struct(i) => (i.ident.to_string(), "struct", &i.attrs),
+            syn::Item::Enum(i) => (i.ident.to_string(), "enum", &i.attrs),
+            syn::Item::Trait(i) => (i.ident.to_string(), "trait", &i.attrs),
+            syn::Item::Fn(i) => (i.sig.ident.to_string(), "fn", &i.attrs),
+            _ => continue,
+        };
+        let doc = doc_of(attrs);
+        if !doc.contains("@c4 code") {
+            continue;
+        }
+        elements.push(CodeElement {
+            name,
+            kind: kind.to_string(),
+            description: extract_description(&doc),
+            relationships: extract_relationships(&doc),
+        });
+    }
+    elements
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -388,6 +440,28 @@ mod tests {
         assert_eq!(extract_c4_level("//! @c4 container"), C4Level::Container);
         assert_eq!(extract_c4_level("//! @c4 component"), C4Level::Component);
         assert_eq!(extract_c4_level("//! no annotation"), C4Level::Unknown);
+    }
+
+    #[test]
+    fn code_elements_are_curated_and_typed() {
+        let src = r#"
+/// @c4 code
+/// The storage seam.
+/// @c4 uses Row "yields" "Rust"
+pub trait Adapter {}
+
+/// @c4 code
+pub struct Row {}
+
+/// Not architectural — no marker.
+pub struct Helper {}
+"#;
+        let els = extract_code_elements(src);
+        let names: Vec<_> = els.iter().map(|e| (e.name.as_str(), e.kind.as_str())).collect();
+        assert_eq!(names, vec![("Adapter", "trait"), ("Row", "struct")]);
+        assert_eq!(els[0].relationships.len(), 1);
+        assert_eq!(els[0].relationships[0].target, "Row");
+        assert_eq!(els[0].description, "The storage seam.");
     }
 
     #[test]
