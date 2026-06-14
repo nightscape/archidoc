@@ -8,7 +8,17 @@ use archidoc_types::C4Level;
 /// Generate PlantUML C4 container diagram.
 pub fn generate_container(output_dir: &Path, ir: &ArchitectureIR) {
     let filepath = output_dir.join("c4-container.puml");
+    fs::write(&filepath, container_diagram(ir)).expect("Failed to write c4-container.puml");
+}
 
+/// Build the PlantUML C4 container diagram body.
+///
+/// When any container declares an `@c4 layer`, the containers are grouped into
+/// nested `Container_Boundary` blocks (one per layer, falling back to the
+/// directory-derived parent, then "Other") inside the `System` boundary —
+/// mirroring [`generate_component`]. With no layers declared the System holds a
+/// flat container list, exactly as before.
+fn container_diagram(ir: &ArchitectureIR) -> String {
     let all_annotated = ir.annotated_dirs();
     let containers: Vec<&DirNode> = all_annotated
         .iter()
@@ -16,16 +26,43 @@ pub fn generate_container(output_dir: &Path, ir: &ArchitectureIR) {
         .filter(|d| d.c4_level == Some(C4Level::Container))
         .collect();
 
+    let container_line = |dir: &DirNode| {
+        format!(
+            "Container({}, \"{}\", \"{}\", \"{}\")",
+            to_puml_id(&dir.path),
+            to_title_case(&dir.name),
+            dir.pattern.as_deref().unwrap_or("--"),
+            dir.description.as_deref().unwrap_or("")
+        )
+    };
+
     let mut container_defs = String::new();
-    for dir in &containers {
-        let id = to_puml_id(&dir.path);
-        let name = to_title_case(&dir.name);
-        let pattern = dir.pattern.as_deref().unwrap_or("--");
-        let desc = dir.description.as_deref().unwrap_or("");
-        container_defs.push_str(&format!(
-            "    Container({}, \"{}\", \"{}\", \"{}\")\n",
-            id, name, pattern, desc
-        ));
+    if containers.iter().any(|d| d.layer.is_some()) {
+        let mut grouped: BTreeMap<String, Vec<&DirNode>> = BTreeMap::new();
+        for dir in &containers {
+            let group = dir
+                .layer
+                .clone()
+                .or_else(|| dir.parent.clone())
+                .unwrap_or_else(|| "Other".to_string());
+            grouped.entry(group).or_default().push(dir);
+        }
+        for (layer, layer_dirs) in &grouped {
+            let layer_id = to_puml_id(layer);
+            let layer_name = to_title_case(layer.split('/').last().unwrap_or(layer));
+            container_defs.push_str(&format!(
+                "    Container_Boundary({}_layer, \"{}\") {{\n",
+                layer_id, layer_name
+            ));
+            for dir in layer_dirs {
+                container_defs.push_str(&format!("        {}\n", container_line(dir)));
+            }
+            container_defs.push_str("    }\n");
+        }
+    } else {
+        for dir in &containers {
+            container_defs.push_str(&format!("    {}\n", container_line(dir)));
+        }
     }
 
     // `@c4 system` nodes are external systems the containers talk to — render
@@ -53,7 +90,7 @@ pub fn generate_container(output_dir: &Path, ir: &ArchitectureIR) {
         }
     }
 
-    let content = format!(
+    format!(
         r#"@startuml c4-container
 !include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
 
@@ -67,9 +104,7 @@ System_Boundary(sys, "System") {{
 @enduml
 "#,
         container_defs, system_defs, rel_defs
-    );
-
-    fs::write(&filepath, content).expect("Failed to write c4-container.puml");
+    )
 }
 
 /// Annotated `@c4 system` nodes.
@@ -290,4 +325,54 @@ fn to_title_case(s: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use archidoc_types::ir::{ArchitectureIR, DirNode};
+    use archidoc_types::C4Level;
+
+    fn container(name: &str, layer: Option<&str>) -> DirNode {
+        let mut d = DirNode::empty(name, name);
+        d.c4_level = Some(C4Level::Container);
+        d.layer = layer.map(|s| s.to_string());
+        d
+    }
+
+    fn ir_with(containers: Vec<DirNode>) -> ArchitectureIR {
+        let mut ir = ArchitectureIR::new("/scan".to_string());
+        ir.root.dirs = containers;
+        ir
+    }
+
+    #[test]
+    fn container_diagram_groups_by_layer() {
+        let ir = ir_with(vec![
+            container("gpui", Some("UI")),
+            container("tui", Some("UI")),
+            container("mcp", Some("Services")),
+        ]);
+        let out = container_diagram(&ir);
+
+        // One nested boundary per declared layer, inside the System boundary.
+        assert!(out.contains("System_Boundary(sys, \"System\")"));
+        assert!(out.contains("Container_Boundary(UI_layer, \"UI\") {"));
+        assert!(out.contains("Container_Boundary(Services_layer, \"Services\") {"));
+        // Containers land inside their layer boundary.
+        assert!(out.contains("Container(gpui, \"Gpui\""));
+        assert!(out.contains("Container(tui, \"Tui\""));
+        assert!(out.contains("Container(mcp, \"Mcp\""));
+    }
+
+    #[test]
+    fn container_diagram_stays_flat_without_layers() {
+        let ir = ir_with(vec![container("gpui", None), container("tui", None)]);
+        let out = container_diagram(&ir);
+
+        // No layer declared → no nested boundary, flat list as before.
+        assert!(!out.contains("Container_Boundary"));
+        assert!(out.contains("System_Boundary(sys, \"System\") {"));
+        assert!(out.contains("    Container(gpui, \"Gpui\""));
+    }
 }
