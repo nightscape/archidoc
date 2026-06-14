@@ -759,6 +759,7 @@ fn render_plantuml(cfg: &RenderConfig) {
         std::process::exit(1);
     });
 
+    archidoc_engine::plantuml::generate_context(&diagrams_dir, cfg.ir);
     archidoc_engine::plantuml::generate_container(&diagrams_dir, cfg.ir);
     archidoc_engine::plantuml::generate_component(&diagrams_dir, cfg.ir);
     println!("wrote PlantUML files to {}", diagrams_dir.display());

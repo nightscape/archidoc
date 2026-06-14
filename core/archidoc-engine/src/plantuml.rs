@@ -28,6 +28,19 @@ pub fn generate_container(output_dir: &Path, ir: &ArchitectureIR) {
         ));
     }
 
+    // `@c4 system` nodes are external systems the containers talk to — render
+    // them outside the boundary so cross-level `Rel(...)` arrows resolve.
+    let mut system_defs = String::new();
+    for dir in systems_of(ir) {
+        let id = to_puml_id(&dir.path);
+        let name = to_title_case(&dir.name);
+        let desc = dir.description.as_deref().unwrap_or("");
+        system_defs.push_str(&format!(
+            "System_Ext({}, \"{}\", \"{}\")\n",
+            id, name, desc
+        ));
+    }
+
     let mut rel_defs = String::new();
     for dir in &containers {
         let from_id = to_puml_id(&dir.path);
@@ -50,12 +63,72 @@ System_Boundary(sys, "System") {{
 {}}}
 
 {}
+{}
 @enduml
 "#,
-        container_defs, rel_defs
+        container_defs, system_defs, rel_defs
     );
 
     fs::write(&filepath, content).expect("Failed to write c4-container.puml");
+}
+
+/// Annotated `@c4 system` nodes.
+fn systems_of(ir: &ArchitectureIR) -> Vec<&DirNode> {
+    ir.annotated_dirs()
+        .into_iter()
+        .filter(|d| d.c4_level == Some(C4Level::System))
+        .collect()
+}
+
+/// Generate the PlantUML C4 system-context diagram from `@c4 system` nodes.
+///
+/// Renders one `System(...)` per `@c4 system` annotation plus every relationship
+/// declared on those nodes. Emits nothing if no system-level node exists, so the
+/// diagram only appears once a project declares its context.
+pub fn generate_context(output_dir: &Path, ir: &ArchitectureIR) {
+    let systems = systems_of(ir);
+    if systems.is_empty() {
+        return;
+    }
+
+    let mut system_defs = String::new();
+    for dir in &systems {
+        let id = to_puml_id(&dir.path);
+        let name = to_title_case(&dir.name);
+        let desc = dir.description.as_deref().unwrap_or("");
+        system_defs.push_str(&format!(
+            "System({}, \"{}\", \"{}\")\n",
+            id, name, desc
+        ));
+    }
+
+    let mut rel_defs = String::new();
+    for dir in &systems {
+        let from_id = to_puml_id(&dir.path);
+        for rel in &dir.relationships {
+            let to_id = to_puml_id(&rel.target);
+            rel_defs.push_str(&format!(
+                "Rel({}, {}, \"{}\", \"{}\")\n",
+                from_id, to_id, rel.label, rel.protocol
+            ));
+        }
+    }
+
+    let content = format!(
+        r#"@startuml c4-context
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+title System Context Diagram
+
+{}
+{}
+@enduml
+"#,
+        system_defs, rel_defs
+    );
+
+    fs::write(output_dir.join("c4-context.puml"), content)
+        .expect("Failed to write c4-context.puml");
 }
 
 /// Generate PlantUML C4 component diagram.
