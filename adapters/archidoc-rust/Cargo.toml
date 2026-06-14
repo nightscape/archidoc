@@ -14,7 +14,7 @@ categories = ["development-tools", "command-line-utilities"]
 archidoc-types = { version = "0.5.0", path = "../../core/archidoc-types" }
 quote = "1"
 syn = { version = "2", features = ["full", "parsing"] }
-walkdir = "2"
+ignore = "0.4"
 
 [dev-dependencies]
 tempfile = "3"

@@ -169,22 +169,46 @@ pub fn extract_pattern_status(content: &str) -> PatternStatus {
     }
 }
 
-/// Extract the first non-header, non-marker line as description.
+/// True for lines that are structure, not prose: the `@c4` directive, Markdown
+/// headings, table rows, and the `Pattern:` / `GoF:` metadata lines.
+fn is_marker_line(trimmed: &str) -> bool {
+    trimmed.starts_with('#')
+        || trimmed.starts_with("@c4 ")
+        || trimmed.starts_with('|')
+        || trimmed.starts_with("GoF:")
+        || trimmed.starts_with("Pattern:")
+}
+
+/// Extract the human-readable description: the first **paragraph** of prose.
+///
+/// A paragraph is a run of consecutive non-empty, non-marker lines. Leading
+/// blank and marker lines (`@c4 …`, `#`, `|`, `Pattern:`, `GoF:`) are skipped;
+/// collection then stops at the first blank or marker line. The collected lines
+/// are joined with a single space, so a sentence wrapped across several `//!`
+/// lines is reassembled rather than truncated at the first wrap.
+///
+/// This generalises the previous first-line behaviour: a one-line description
+/// followed by a blank line yields exactly that line, unchanged. Only a
+/// description whose *first paragraph spans multiple lines* changes — it is now
+/// joined instead of cut at the first line break.
 pub fn extract_description(content: &str) -> String {
-    content
-        .lines()
-        .find(|l| {
-            let trimmed = l.trim();
-            !trimmed.is_empty()
-                && !trimmed.starts_with('#')
-                && !trimmed.starts_with("@c4 ")
-                && !trimmed.starts_with('|')
-                && !trimmed.starts_with("GoF:")
-                && !trimmed.starts_with("Pattern:")
-        })
-        .unwrap_or("*No description*")
-        .trim()
-        .to_string()
+    let mut paragraph: Vec<&str> = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || is_marker_line(trimmed) {
+            if paragraph.is_empty() {
+                continue; // still skipping leading blanks / markers
+            }
+            break; // prose has ended
+        }
+        paragraph.push(trimmed);
+    }
+
+    if paragraph.is_empty() {
+        "*No description*".to_string()
+    } else {
+        paragraph.join(" ")
+    }
 }
 
 /// Extract the parent container from a dot-notation module path.
@@ -407,6 +431,35 @@ mod tests {
     fn description_skips_pattern_line() {
         let content = "@c4 component\n\nPattern: Facade\n\nActual description here.";
         assert_eq!(extract_description(content), "Actual description here.");
+    }
+
+    #[test]
+    fn description_single_line_unchanged() {
+        // The common case: one line, then a blank line, then body prose.
+        let content = "@c4 component\n\nCore traits for datasources.\n\nMore detail here.";
+        assert_eq!(extract_description(content), "Core traits for datasources.");
+    }
+
+    #[test]
+    fn description_joins_wrapped_paragraph() {
+        // A sentence wrapped across lines is reassembled, not truncated.
+        let content = "@c4 component\n\nCross-PBT transition traits shared between\n`a` and `b`.\n\nDetail.";
+        assert_eq!(
+            extract_description(content),
+            "Cross-PBT transition traits shared between `a` and `b`."
+        );
+    }
+
+    #[test]
+    fn description_stops_at_marker_without_blank() {
+        // A marker line ends the paragraph even with no intervening blank line.
+        let content = "@c4 component\n\nShort summary.\nPattern: Facade";
+        assert_eq!(extract_description(content), "Short summary.");
+    }
+
+    #[test]
+    fn description_empty_is_placeholder() {
+        assert_eq!(extract_description("@c4 component\n"), "*No description*");
     }
 
     #[test]
