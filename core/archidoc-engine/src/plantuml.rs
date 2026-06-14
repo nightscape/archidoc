@@ -30,9 +30,9 @@ fn container_diagram(ir: &ArchitectureIR) -> String {
         format!(
             "Container({}, \"{}\", \"{}\", \"{}\")",
             to_puml_id(&dir.path),
-            to_title_case(&dir.name),
-            dir.pattern.as_deref().unwrap_or("--"),
-            dir.description.as_deref().unwrap_or("")
+            escape_label(&to_title_case(&dir.name)),
+            escape_label(dir.pattern.as_deref().unwrap_or("--")),
+            escape_label(dir.description.as_deref().unwrap_or(""))
         )
     };
 
@@ -70,8 +70,8 @@ fn container_diagram(ir: &ArchitectureIR) -> String {
     let mut system_defs = String::new();
     for dir in systems_of(ir) {
         let id = to_puml_id(&dir.path);
-        let name = to_title_case(&dir.name);
-        let desc = dir.description.as_deref().unwrap_or("");
+        let name = escape_label(&to_title_case(&dir.name));
+        let desc = escape_label(dir.description.as_deref().unwrap_or(""));
         system_defs.push_str(&format!(
             "System_Ext({}, \"{}\", \"{}\")\n",
             id, name, desc
@@ -85,7 +85,10 @@ fn container_diagram(ir: &ArchitectureIR) -> String {
             let to_id = to_puml_id(&rel.target);
             rel_defs.push_str(&format!(
                 "Rel({}, {}, \"{}\", \"{}\")\n",
-                from_id, to_id, rel.label, rel.protocol
+                from_id,
+                to_id,
+                escape_label(&rel.label),
+                escape_label(&rel.protocol)
             ));
         }
     }
@@ -129,8 +132,8 @@ pub fn generate_context(output_dir: &Path, ir: &ArchitectureIR) {
     let mut system_defs = String::new();
     for dir in &systems {
         let id = to_puml_id(&dir.path);
-        let name = to_title_case(&dir.name);
-        let desc = dir.description.as_deref().unwrap_or("");
+        let name = escape_label(&to_title_case(&dir.name));
+        let desc = escape_label(dir.description.as_deref().unwrap_or(""));
         system_defs.push_str(&format!(
             "System({}, \"{}\", \"{}\")\n",
             id, name, desc
@@ -144,7 +147,10 @@ pub fn generate_context(output_dir: &Path, ir: &ArchitectureIR) {
             let to_id = to_puml_id(&rel.target);
             rel_defs.push_str(&format!(
                 "Rel({}, {}, \"{}\", \"{}\")\n",
-                from_id, to_id, rel.label, rel.protocol
+                from_id,
+                to_id,
+                escape_label(&rel.label),
+                escape_label(&rel.protocol)
             ));
         }
     }
@@ -191,16 +197,16 @@ pub fn generate_component(output_dir: &Path, ir: &ArchitectureIR) {
     let mut boundary_defs = String::new();
     for (parent, component_dirs) in &grouped {
         let parent_id = to_puml_id(parent);
-        let parent_name = to_title_case(parent.split('/').last().unwrap_or(parent));
+        let parent_name = escape_label(&to_title_case(parent.split('/').last().unwrap_or(parent)));
         boundary_defs.push_str(&format!(
             "Container_Boundary({}_boundary, \"{}\") {{\n",
             parent_id, parent_name
         ));
         for dir in component_dirs {
             let id = to_puml_id(&dir.path);
-            let name = &dir.name;
-            let pattern = dir.pattern.as_deref().unwrap_or("--");
-            let desc = dir.description.as_deref().unwrap_or("");
+            let name = escape_label(&dir.name);
+            let pattern = escape_label(dir.pattern.as_deref().unwrap_or("--"));
+            let desc = escape_label(dir.description.as_deref().unwrap_or(""));
             boundary_defs.push_str(&format!(
                 "    Component({}, \"{}\", \"{}\", \"{}\")\n",
                 id, name, pattern, desc
@@ -216,7 +222,10 @@ pub fn generate_component(output_dir: &Path, ir: &ArchitectureIR) {
             let to_id = to_puml_id(&rel.target);
             rel_defs.push_str(&format!(
                 "Rel({}, {}, \"{}\", \"{}\")\n",
-                from_id, to_id, rel.label, rel.protocol
+                from_id,
+                to_id,
+                escape_label(&rel.label),
+                escape_label(&rel.protocol)
             ));
         }
     }
@@ -271,14 +280,18 @@ pub fn generate_code(output_dir: &Path, ir: &ArchitectureIR) {
         let boundary_id = to_puml_id(&owner.path);
         boundary_defs.push_str(&format!(
             "Container_Boundary({}_code, \"{}\") {{\n",
-            boundary_id, owner.name
+            boundary_id,
+            escape_label(&owner.name)
         ));
         for el in &owner.code_elements {
             let id = to_puml_id(&format!("{}__{}", owner.path, el.name));
-            let desc = el.description.as_deref().unwrap_or("");
+            let desc = escape_label(el.description.as_deref().unwrap_or(""));
             boundary_defs.push_str(&format!(
                 "    Component({}, \"{}\", \"{}\", \"{}\")\n",
-                id, el.name, el.kind, desc
+                id,
+                escape_label(&el.name),
+                escape_label(&el.kind),
+                desc
             ));
             for rel in &el.relationships {
                 let to_id = by_name
@@ -287,7 +300,10 @@ pub fn generate_code(output_dir: &Path, ir: &ArchitectureIR) {
                     .unwrap_or_else(|| to_puml_id(&rel.target));
                 rel_defs.push_str(&format!(
                     "Rel({}, {}, \"{}\", \"{}\")\n",
-                    id, to_id, rel.label, rel.protocol
+                    id,
+                    to_id,
+                    escape_label(&rel.label),
+                    escape_label(&rel.protocol)
                 ));
             }
         }
@@ -327,6 +343,17 @@ fn to_title_case(s: &str) -> String {
         .join(" ")
 }
 
+/// Sanitize a string for embedding inside a PlantUML double-quoted argument.
+///
+/// C4/PlantUML macro arguments are double-quoted and have no escape sequence for
+/// an embedded `"`, so a quote in a description or label (e.g. a doc comment
+/// reading `e.g. "block"`) would prematurely close the string and corrupt the
+/// diagram. Replace any `"` with `'` and flatten newlines to spaces so arbitrary
+/// annotation text renders safely.
+fn escape_label(s: &str) -> String {
+    s.replace('"', "'").replace(['\n', '\r'], " ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,6 +371,30 @@ mod tests {
         let mut ir = ArchitectureIR::new("/scan".to_string());
         ir.root.dirs = containers;
         ir
+    }
+
+    #[test]
+    fn escape_label_neutralizes_quotes_and_newlines() {
+        assert_eq!(escape_label(r#"e.g. "block", "doc""#), "e.g. 'block', 'doc'");
+        assert_eq!(escape_label("line1\nline2"), "line1 line2");
+        assert_eq!(escape_label("plain"), "plain");
+    }
+
+    #[test]
+    fn component_description_with_quotes_does_not_break_the_string() {
+        let mut node = DirNode::empty("api", "api");
+        node.c4_level = Some(C4Level::Component);
+        node.description = Some(r#"Typed name (e.g. "block")"#.to_string());
+        let mut ir = ArchitectureIR::new("/scan".to_string());
+        ir.root.dirs = vec![node];
+
+        let dir = std::env::temp_dir().join("archidoc_escape_dev_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        generate_component(&dir, &ir);
+        let out = std::fs::read_to_string(dir.join("c4-component.puml")).unwrap();
+
+        assert!(out.contains(r#"Component(api, "api", "--", "Typed name (e.g. 'block')")"#));
+        assert!(!out.contains(r#"(e.g. "block")"#));
     }
 
     #[test]
