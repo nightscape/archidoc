@@ -18,7 +18,7 @@ pub mod scaffold_ir;
 pub use annotation::{HealthStatus, PatternStatus};
 pub use ir::{ArchitectureIR, C4Level, DirNode, FileNode};
 pub use scaffold_ir::{ScaffoldIR, ScaffoldNode, ScaffoldPostHook, ScaffoldTemplate, ScaffoldVariable};
-pub use module_doc::{CodeElement, FileEntry, ModuleDoc, Relationship};
+pub use module_doc::{CodeElement, FileEntry, ModuleDoc, Relationship, TraitImpl};
 pub use report::{
     AnnotationStatus, CoverageReport, DirCoverage, DriftReport, DriftedFile, ElementHealth,
     GhostEntry, HealthReport, OrphanEntry, ValidationReport,

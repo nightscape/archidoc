@@ -71,6 +71,11 @@ fn merge_dir(base: DirNode, incoming: DirNode) -> Result<DirNode, MergeError> {
         } else {
             incoming.code_elements
         },
+        trait_impls: if incoming.trait_impls.is_empty() {
+            base.trait_impls
+        } else {
+            incoming.trait_impls
+        },
         dirs: Vec::new(), // filled below
         files: Vec::new(), // filled below
     };

@@ -333,6 +333,7 @@ digraph {
             files: vec![],
             layer: None,
             code_elements: vec![],
+            trait_impls: vec![],
         }];
 
         let graph = ImportGraph::default(); // Empty graph
@@ -361,6 +362,7 @@ digraph {
             files: vec![],
             layer: None,
             code_elements: vec![],
+            trait_impls: vec![],
         }];
 
         let mut graph = ImportGraph::default();

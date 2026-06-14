@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use crate::annotation::{HealthStatus, PatternStatus};
 pub use crate::ir::C4Level;
+pub use crate::ir::TraitImpl;
 
 /// A runtime dependency between modules.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -56,4 +57,6 @@ pub struct ModuleDoc {
     pub files: Vec<FileEntry>,
     #[serde(default)]
     pub code_elements: Vec<CodeElement>,
+    #[serde(default)]
+    pub trait_impls: Vec<TraitImpl>,
 }

@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 
 use archidoc_types::{
-    C4Level, CodeElement, FileEntry, HealthStatus, PatternStatus, Relationship,
+    C4Level, CodeElement, FileEntry, HealthStatus, PatternStatus, Relationship, TraitImpl,
 };
 
 /// Extract `//!` doc comments from a Rust source file.
@@ -441,9 +441,60 @@ pub fn extract_code_elements(source: &str) -> Vec<CodeElement> {
     elements
 }
 
+/// Extract trait realizations (`impl Trait for Type`) from a Rust source file.
+///
+/// Returns one `TraitImpl` per `impl <Trait> for <Type>` block, using the last
+/// path segment of each (so `format::FileFormatAdapter` → `FileFormatAdapter`).
+/// Inherent impls (`impl Type`) are skipped. Whether a realization is rendered
+/// is decided later — the walker keeps only impls of `@c4 code` types and the
+/// renderer draws an arrow only when the trait is also `@c4 code`.
+pub fn extract_trait_impls(source: &str) -> Vec<TraitImpl> {
+    let file = match syn::parse_file(source) {
+        Ok(f) => f,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut impls = Vec::new();
+    for item in &file.items {
+        let syn::Item::Impl(imp) = item else { continue };
+        let Some((_, trait_path, _)) = &imp.trait_ else {
+            continue; // inherent impl, not a realization
+        };
+        let Some(trait_name) = trait_path.segments.last().map(|s| s.ident.to_string()) else {
+            continue;
+        };
+        let syn::Type::Path(type_path) = imp.self_ty.as_ref() else {
+            continue;
+        };
+        let Some(type_name) = type_path.path.segments.last().map(|s| s.ident.to_string()) else {
+            continue;
+        };
+        impls.push(TraitImpl {
+            type_name,
+            trait_name,
+        });
+    }
+    impls
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extract_trait_impls_finds_realizations() {
+        let src = r#"
+            pub struct Md;
+            impl crate::FileFormatAdapter for Md {}
+            impl Clone for Md { fn clone(&self) -> Self { Md } }
+            impl Md { fn helper() {} }
+        "#;
+        let impls = extract_trait_impls(src);
+        assert_eq!(impls.len(), 2);
+        assert_eq!(impls[0].type_name, "Md");
+        assert_eq!(impls[0].trait_name, "FileFormatAdapter");
+        assert_eq!(impls[1].trait_name, "Clone");
+    }
 
     #[test]
     fn explicit_pattern_single_word() {

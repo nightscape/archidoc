@@ -76,7 +76,7 @@ pub fn extract_all_docs(root: &Path) -> Vec<ModuleDoc> {
         // `@c4 code` elements live on item docs across the module's source
         // files. For an entry file, scan its directory's siblings so the
         // crate/module component owns every code element it declares.
-        let code_elements = if is_standard_entry {
+        let code_elements: Vec<_> = if is_standard_entry {
             let dir = path.parent().unwrap_or(path);
             read_rs_sources(dir)
                 .iter()
@@ -85,6 +85,26 @@ pub fn extract_all_docs(root: &Path) -> Vec<ModuleDoc> {
         } else {
             parser::extract_code_elements(&fs::read_to_string(path).unwrap_or_default())
         };
+
+        // Trait realizations of this component's `@c4 code` types. Collect every
+        // `impl Trait for Type` across the same sources, then keep only those
+        // whose implementing type is a declared code element — so the IR never
+        // carries impls (Debug, Clone, …) of un-annotated types.
+        let code_names: std::collections::HashSet<String> =
+            code_elements.iter().map(|e| e.name.clone()).collect();
+        let all_impls: Vec<_> = if is_standard_entry {
+            let dir = path.parent().unwrap_or(path);
+            read_rs_sources(dir)
+                .iter()
+                .flat_map(|(_, src)| parser::extract_trait_impls(src))
+                .collect()
+        } else {
+            parser::extract_trait_impls(&fs::read_to_string(path).unwrap_or_default())
+        };
+        let trait_impls: Vec<_> = all_impls
+            .into_iter()
+            .filter(|ti| code_names.contains(&ti.type_name))
+            .collect();
 
         docs_map.insert(module_path.clone(), (ModuleDoc {
             module_path,
@@ -99,6 +119,7 @@ pub fn extract_all_docs(root: &Path) -> Vec<ModuleDoc> {
             relationships,
             files,
             code_elements,
+            trait_impls,
         }, is_priority));
     }
 
