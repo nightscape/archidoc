@@ -1,6 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+use ignore::WalkBuilder;
 
 /// Built-in directories to skip. Extended (not replaced) by config.tree.json exclude_dirs.
 const DEFAULT_SKIP_DIRS: &[&str] = &[
@@ -198,7 +200,8 @@ impl TreeConfig {
 /// ```
 pub fn compact_dirs_tree(root: &Path, max_depth: Option<usize>, config: &TreeConfig) -> String {
     let mut out = String::new();
-    brace_walk(&mut out, root, root, 0, max_depth, config);
+    let visible_dirs = visible_dir_set(root);
+    brace_walk(&mut out, root, root, 0, max_depth, config, &visible_dirs);
     out
 }
 
@@ -217,7 +220,8 @@ pub fn compact_files_tree(root: &Path, max_depth: Option<usize>, config: &TreeCo
         out.push_str(&format!("[root] {}\n", root_files.join(", ")));
     }
 
-    walk_files(&mut out, root, root, 0, max_depth, config);
+    let visible_dirs = visible_dir_set(root);
+    walk_files(&mut out, root, root, 0, max_depth, config, &visible_dirs);
     out
 }
 
@@ -231,7 +235,15 @@ pub fn build_dir_tree(
 ) -> archidoc_types::ir::DirNode {
     use archidoc_types::ir::{DirNode, FileNode};
 
-    fn build_node(root: &Path, dir: &Path, config: &TreeConfig) -> DirNode {
+    // Prune ignored / hidden directories from the tree.
+    let visible_dirs = visible_dir_set(root);
+
+    fn build_node(
+        root: &Path,
+        dir: &Path,
+        config: &TreeConfig,
+        visible_dirs: &HashSet<PathBuf>,
+    ) -> DirNode {
         let name = if dir == root {
             ".".to_string()
         } else {
@@ -252,12 +264,12 @@ pub fn build_dir_tree(
         let file_names = collect_files(dir, config);
         let files: Vec<FileNode> = file_names.into_iter().map(|n| FileNode::bare(&n)).collect();
 
-        let mut subdirs = read_subdirs(dir, config);
+        let mut subdirs = read_subdirs(dir, config, visible_dirs);
         subdirs.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
 
         let dirs: Vec<DirNode> = subdirs
             .iter()
-            .map(|subdir| build_node(root, subdir, config))
+            .map(|subdir| build_node(root, subdir, config, visible_dirs))
             .collect();
 
         DirNode {
@@ -276,7 +288,7 @@ pub fn build_dir_tree(
         }
     }
 
-    build_node(root, root, config)
+    build_node(root, root, config, &visible_dirs)
 }
 
 /// Render a dirs-only compact tree from a `DirNode`.
@@ -422,8 +434,9 @@ fn brace_walk(
     depth: usize,
     max_depth: Option<usize>,
     config: &TreeConfig,
+    visible_dirs: &HashSet<PathBuf>,
 ) {
-    let mut subdirs = read_subdirs(dir, config);
+    let mut subdirs = read_subdirs(dir, config, visible_dirs);
     if subdirs.is_empty() {
         return; // leaf — appears only in parent's brace list
     }
@@ -444,7 +457,7 @@ fn brace_walk(
     }
 
     for subdir in &subdirs {
-        brace_walk(out, root, subdir, depth + 1, max_depth, config);
+        brace_walk(out, root, subdir, depth + 1, max_depth, config, visible_dirs);
     }
 }
 
@@ -455,6 +468,7 @@ fn walk_files(
     depth: usize,
     max_depth: Option<usize>,
     config: &TreeConfig,
+    visible_dirs: &HashSet<PathBuf>,
 ) {
     if let Some(max) = max_depth {
         if depth >= max {
@@ -462,12 +476,12 @@ fn walk_files(
         }
     }
 
-    let mut subdirs = read_subdirs(dir, config);
+    let mut subdirs = read_subdirs(dir, config, visible_dirs);
     subdirs.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
 
     // Sibling-collapse: if all subdirs are leaves with identical non-empty file sets,
     // emit one compressed line instead of N individual lines.
-    if let Some(collapse) = try_sibling_collapse(&subdirs, config) {
+    if let Some(collapse) = try_sibling_collapse(&subdirs, config, visible_dirs) {
         let prefix = dir_rel(root, dir);
         out.push_str(&format!(
             "{}/{{{}}}/  [each: {}]\n",
@@ -493,7 +507,7 @@ fn walk_files(
             out.push_str(&format!("{}/{}\n", rel_str, suffix));
         }
 
-        walk_files(out, root, &subdir, depth + 1, max_depth, config);
+        walk_files(out, root, &subdir, depth + 1, max_depth, config, visible_dirs);
     }
 }
 
@@ -512,7 +526,11 @@ struct SiblingCollapse {
 /// 1. At least 3 siblings.
 /// 2. Every sibling is a leaf dir (no nested subdirs of its own).
 /// 3. Every sibling has an identical, non-empty file set.
-fn try_sibling_collapse(subdirs: &[std::path::PathBuf], config: &TreeConfig) -> Option<SiblingCollapse> {
+fn try_sibling_collapse(
+    subdirs: &[PathBuf],
+    config: &TreeConfig,
+    visible_dirs: &HashSet<PathBuf>,
+) -> Option<SiblingCollapse> {
     if subdirs.len() < 3 {
         return None;
     }
@@ -520,7 +538,7 @@ fn try_sibling_collapse(subdirs: &[std::path::PathBuf], config: &TreeConfig) -> 
     let mut signatures: Vec<Vec<String>> = Vec::with_capacity(subdirs.len());
     for subdir in subdirs {
         // Must be a leaf — no nested subdirs
-        if !read_subdirs(subdir, config).is_empty() {
+        if !read_subdirs(subdir, config, visible_dirs).is_empty() {
             return None;
         }
         let files = collect_files(subdir, config);
@@ -602,7 +620,23 @@ fn format_file_suffix(files: &[String], config: &TreeConfig) -> String {
     format!(" [{} files: {}]", files.len(), breakdown.join(" "))
 }
 
-fn read_subdirs(dir: &Path, config: &TreeConfig) -> Vec<std::path::PathBuf> {
+/// The set of directories the `ignore` crate considers visible under `root`:
+/// it honours `.gitignore` / `.ignore` files and skips hidden dirs (`.git`,
+/// `.jj`, `target`, …). Used to prune ignored trees from every walk.
+fn visible_dir_set(root: &Path) -> HashSet<PathBuf> {
+    WalkBuilder::new(root)
+        .build()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .map(|e| e.into_path())
+        .collect()
+}
+
+fn read_subdirs(
+    dir: &Path,
+    config: &TreeConfig,
+    visible_dirs: &HashSet<PathBuf>,
+) -> Vec<PathBuf> {
     let Ok(entries) = fs::read_dir(dir) else { return Vec::new() };
 
     entries
@@ -610,6 +644,10 @@ fn read_subdirs(dir: &Path, config: &TreeConfig) -> Vec<std::path::PathBuf> {
         .filter_map(|e| {
             let path = e.path();
             if !path.is_dir() {
+                return None;
+            }
+            // Pruned by `.gitignore` / `.ignore` or hidden (.git, .jj, target, …).
+            if !visible_dirs.contains(&path) {
                 return None;
             }
             let name = e.file_name();

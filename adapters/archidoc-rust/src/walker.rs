@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use archidoc_types::ModuleDoc;
-use walkdir::WalkDir;
+use ignore::WalkBuilder;
 
 use crate::parser;
 use crate::path_resolver;
@@ -12,18 +12,17 @@ use crate::path_resolver;
 /// Finds `lib.rs`, `mod.rs`, and flat `.rs` module files with archidoc annotations,
 /// extracts `//!` doc comments, and builds ModuleDoc structs from the parsed annotations.
 ///
+/// The walk honours `.gitignore` / `.ignore` files (and skips hidden dirs like
+/// `.git`, `.jj`, `target`) via the `ignore` crate, so build output, VCS
+/// metadata, and other ignored trees are never surfaced as modules.
+///
 /// Flat module support: A `.rs` file that is not `mod.rs` or `lib.rs` is included
 /// if it contains archidoc annotations (C4 markers: `@c4 container` or `@c4 component`).
 pub fn extract_all_docs(root: &Path) -> Vec<ModuleDoc> {
     let mut docs_map = std::collections::HashMap::<String, (ModuleDoc, bool)>::new();
 
-    for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
+    for entry in WalkBuilder::new(root).build().filter_map(|e| e.ok()) {
         let path = entry.path();
-
-        // Skip target directories
-        if path.components().any(|c| c.as_os_str() == "target") {
-            continue;
-        }
 
         // Only process .rs files
         let filename = match path.file_name().and_then(|n| n.to_str()) {
